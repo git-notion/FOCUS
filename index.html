@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Dot Transformer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .video-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        video {
+            max-width: 45%;
+            background-color: black;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            width: 80%;
+            margin: 10px 0;
+        }
+        .slider-container label {
+            margin-right: 10px;
+            white-space: nowrap;
+        }
+        input[type="file"], input[type="range"] {
+            margin: 10px 0;
+        }
+        #downloadButton {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #downloadButton:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Video Dot Transformer</h1>
+        
+        <input type="file" id="videoUpload" accept="video/*">
+        
+        <div class="video-container">
+            <video id="originalVideo" controls></video>
+            <canvas id="transformedVideo"></canvas>
+        </div>
+        
+        <div class="controls">
+            <div class="slider-container">
+                <label for="dotSizeSlider">Dot Size:</label>
+                <input type="range" id="dotSizeSlider" min="1" max="20" value="5">
+                <span id="dotSizeValue">5</span>
+            </div>
+            
+            <div class="slider-container">
+                <label for="thresholdSlider">Brightness Threshold:</label>
+                <input type="range" id="thresholdSlider" min="0" max="255" value="128">
+                <span id="thresholdValue">128</span>
+            </div>
+        </div>
+        
+        <button id="downloadButton" disabled>Download Transformed Video</button>
+    </div>
+
+    <script>
+        const videoUpload = document.getElementById('videoUpload');
+        const originalVideo = document.getElementById('originalVideo');
+        const transformedCanvas = document.getElementById('transformedVideo');
+        const dotSizeSlider = document.getElementById('dotSizeSlider');
+        const dotSizeValue = document.getElementById('dotSizeValue');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const thresholdValue = document.getElementById('thresholdValue');
+        const downloadButton = document.getElementById('downloadButton');
+
+        let mediaRecorder;
+        let recordedChunks = [];
+
+        // Update dot size display
+        dotSizeSlider.addEventListener('input', (e) => {
+            dotSizeValue.textContent = e.target.value;
+            if (originalVideo.src) {
+                transformVideo();
+            }
+        });
+
+        // Update threshold display
+        thresholdSlider.addEventListener('input', (e) => {
+            thresholdValue.textContent = e.target.value;
+            if (originalVideo.src) {
+                transformVideo();
+            }
+        });
+
+        // Video upload handler
+        videoUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const videoURL = URL.createObjectURL(file);
+            originalVideo.src = videoURL;
+            
+            originalVideo.onloadedmetadata = () => {
+                // Set canvas to same dimensions as video
+                transformedCanvas.width = originalVideo.videoWidth;
+                transformedCanvas.height = originalVideo.videoHeight;
+                
+                // Start video transformation
+                originalVideo.addEventListener('play', transformVideo);
+            };
+        });
+
+        // Video transformation function
+        function transformVideo() {
+            const ctx = transformedCanvas.getContext('2d');
+            const dotSize = parseInt(dotSizeSlider.value);
+            const threshold = parseInt(thresholdSlider.value);
+
+            function drawFrame() {
+                if (originalVideo.paused || originalVideo.ended) return;
+
+                // Clear previous frame
+                ctx.clearRect(0, 0, transformedCanvas.width, transformedCanvas.height);
+
+                // Draw video frame
+                ctx.drawImage(originalVideo, 0, 0, transformedCanvas.width, transformedCanvas.height);
+
+                // Get image data
+                const imageData = ctx.getImageData(0, 0, transformedCanvas.width, transformedCanvas.height);
+                const data = imageData.data;
+
+                // Transform to dot matrix
+                for (let y = 0; y < transformedCanvas.height; y += dotSize) {
+                    for (let x = 0; x < transformedCanvas.width; x += dotSize) {
+                        // Calculate average brightness for this dot area
+                        let totalBrightness = 0;
+                        let count = 0;
+
+                        for (let dy = 0; dy < dotSize; dy++) {
+                            for (let dx = 0; dx < dotSize; dx++) {
+                                const index = 4 * ((y + dy) * transformedCanvas.width + (x + dx));
+                                if (index < data.length) {
+                                    const brightness = (data[index] + data[index + 1] + data[index + 2]) / 3;
+                                    totalBrightness += brightness;
+                                    count++;
+                                }
+                            }
+                        }
+
+                        const avgBrightness = totalBrightness / count;
+
+                        // Draw dot based on brightness
+                        ctx.beginPath();
+                        ctx.fillStyle = avgBrightness > threshold ? 'white' : 'black';
+                        ctx.arc(
+                            x + dotSize / 2, 
+                            y + dotSize / 2, 
+                            dotSize / 2, 
+                            0, 
+                            Math.PI * 2
+                        );
+                        ctx.fill();
+                    }
+                }
+
+                // Continue drawing frames
+                requestAnimationFrame(drawFrame);
+            }
+
+            // Start drawing frames
+            originalVideo.play();
+            drawFrame();
+
+            // Enable download button
+            downloadButton.disabled = false;
+        }
+
+        // Video download handler
+        downloadButton.addEventListener('click', () => {
+            // Stop current playback
+            originalVideo.pause();
+
+            // Create a stream from the canvas
+            const stream = transformedCanvas.captureStream(30); // 30 fps
+            const chunks = [];
+            
+            // Create media recorder
+            const recorder = new MediaRecorder(stream);
+            
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    chunks.push(e.data);
+                }
+            };
+            
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create temporary download link
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'transformed_video.webm';
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+            
+            // Start recording
+            originalVideo.currentTime = 0;
+            originalVideo.play();
+            recorder.start();
+            
+            // Stop recording after video ends
+            originalVideo.onended = () => {
+                recorder.stop();
+            };
+        });
+    </script>
+</body>
+</html>
